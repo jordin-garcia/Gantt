@@ -40,7 +40,8 @@ function App() {
             duration: 30,
             progress: 0,
             color: '#2563eb',
-            parentId: null
+            parentId: null,
+            assignee: ''
         };
         setTasks([newProject]);
     };
@@ -72,7 +73,8 @@ function App() {
             duration: 5,
             progress: 0,
             color: color,
-            parentId: parentId
+            parentId: parentId,
+            assignee: ''
         };
         setTasks([...tasks, newTask]);
     };
@@ -94,6 +96,70 @@ function App() {
     const handleClearData = () => {
         localStorage.removeItem('gantt-tasks');
         setTasks([]);
+    };
+
+    const exportAsJSON = () => {
+        const data = {
+            version: '1.0.0',
+            appName: 'GanttPro',
+            exportedAt: new Date().toISOString(),
+            tasks: tasks
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = `gantt-proyecto-${format(new Date(), 'yyyy-MM-dd_HH-mm')}.gantt.json`;
+        link.href = url;
+        link.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const importFromJSON = (mode = 'replace') => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json,.gantt.json';
+        input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const data = JSON.parse(event.target.result);
+                    let importedTasks;
+
+                    // Support both wrapped format { tasks: [...] } and plain array [...]
+                    if (Array.isArray(data)) {
+                        importedTasks = data;
+                    } else if (data.tasks && Array.isArray(data.tasks)) {
+                        importedTasks = data.tasks;
+                    } else {
+                        alert('El archivo no tiene un formato válido. Se espera un archivo .gantt.json exportado por GanttPro.');
+                        return;
+                    }
+
+                    // Validate minimum task structure
+                    const isValid = importedTasks.every(t => t.id && t.name && t.startDate && t.endDate);
+                    if (!isValid) {
+                        alert('Algunas tareas del archivo no tienen la estructura requerida (id, name, startDate, endDate).');
+                        return;
+                    }
+
+                    if (mode === 'merge') {
+                        // Merge: add imported tasks that don't already exist by id
+                        const existingIds = new Set(tasks.map(t => t.id));
+                        const newTasks = importedTasks.filter(t => !existingIds.has(t.id));
+                        setTasks([...tasks, ...newTasks]);
+                    } else {
+                        // Replace: overwrite all tasks
+                        setTasks(importedTasks);
+                    }
+                } catch (err) {
+                    alert('Error al leer el archivo. Asegúrate de que sea un archivo JSON válido.');
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
     };
 
     const prepareCloneForExport = (clonedDoc) => {
@@ -299,6 +365,8 @@ function App() {
                 onCreateProject={createProject}
                 onExportPNG={exportAsImage}
                 onExportPDF={exportAsPDF}
+                onExportJSON={exportAsJSON}
+                onImportJSON={importFromJSON}
                 viewMode={viewMode}
                 setViewMode={setViewMode}
                 onClearData={handleClearData}

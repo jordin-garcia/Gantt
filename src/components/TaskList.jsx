@@ -1,11 +1,16 @@
-import React, { useState } from 'react';
-import { Trash2, ChevronRight, ChevronDown, Plus, Calendar } from 'lucide-react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
+import { Trash2, ChevronRight, ChevronDown, Plus, Calendar, User } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import DatePickerModal from './DatePickerModal';
+
+// Uniform font size for all editable fields (in px)
+const FIELD_FONT_SIZE = 12;
+const FONT_FAMILY = 'Inter, system-ui, -apple-system, sans-serif';
 
 const TaskList = ({ tasks, updateTask, deleteTask, addTask }) => {
     const [collapsed, setCollapsed] = useState({});
     const [editingTask, setEditingTask] = useState(null);
+    const canvasRef = useRef(null);
 
     const toggleCollapse = (taskId) => {
         setCollapsed(prev => ({ ...prev, [taskId]: !prev[taskId] }));
@@ -31,18 +36,6 @@ const TaskList = ({ tasks, updateTask, deleteTask, addTask }) => {
         return getTaskDepth(task) < 4; // Máximo 5 niveles (0, 1, 2, 3, 4)
     };
 
-    // Calcular tamaño de fuente dinámico basado en la longitud del texto
-    const getDynamicFontSize = (text, depth) => {
-        const effectiveLength = text.length + (depth * 5); // Considerar indentación adicional
-
-        // Ajustado para mayor legibilidad dado el nuevo ancho
-        if (effectiveLength <= 25) return 'text-xs'; // 12px
-        if (effectiveLength <= 40) return 'text-[11px]';
-        if (effectiveLength <= 60) return 'text-[10px]';
-        if (effectiveLength <= 80) return 'text-[9px]';
-        return 'text-[8px]'; // Mínimo para textos muy largos
-    };
-
     const isVisible = (task) => {
         if (!task.parentId) return true;
         const parent = tasks.find(t => t.id === task.parentId);
@@ -50,6 +43,50 @@ const TaskList = ({ tasks, updateTask, deleteTask, addTask }) => {
         if (collapsed[task.parentId]) return false;
         return isVisible(parent);
     };
+
+    // Medir el ancho de un texto en px usando un canvas oculto
+    const measureText = useCallback((text, fontSize = FIELD_FONT_SIZE, fontWeight = 'normal') => {
+        if (!canvasRef.current) {
+            canvasRef.current = document.createElement('canvas');
+        }
+        const ctx = canvasRef.current.getContext('2d');
+        ctx.font = `${fontWeight} ${fontSize}px ${FONT_FAMILY}`;
+        return ctx.measureText(text).width;
+    }, []);
+
+    // Calcular anchos dinámicos de columnas basados en el contenido de TODAS las tareas
+    const { responsableWidth, actividadWidth } = useMemo(() => {
+        const MIN_RESPONSABLE = 120;  // ancho mínimo columna Responsable
+        const MIN_ACTIVIDAD = 200;    // ancho mínimo columna Actividad
+        const PADDING = 32;           // padding + icon + gap dentro de cada celda
+        const ACTIVIDAD_EXTRA = 40;   // chevron + dot + padding internos
+
+        let maxResponsable = MIN_RESPONSABLE;
+        let maxActividad = MIN_ACTIVIDAD;
+
+        tasks.forEach(task => {
+            // Responsable
+            const assigneeText = task.assignee || '';
+            if (assigneeText) {
+                const w = measureText(assigneeText) + PADDING;
+                if (w > maxResponsable) maxResponsable = w;
+            }
+
+            // Actividad — incluir indentación por profundidad
+            const depth = getTaskDepth(task);
+            const indentation = depth * 20; // px de indent por nivel
+            const nameW = measureText(task.name) + ACTIVIDAD_EXTRA + indentation;
+            if (nameW > maxActividad) maxActividad = nameW;
+        });
+
+        return {
+            responsableWidth: Math.ceil(maxResponsable),
+            actividadWidth: Math.ceil(maxActividad),
+        };
+    }, [tasks, measureText]);
+
+    // Ancho total = Responsable + Actividad + Fechas(128) + Días(48) + Acciones(40) + padding(16)
+    const totalWidth = responsableWidth + actividadWidth + 128 + 48 + 40 + 16;
 
     // Ordenar tareas jerárquicamente: padres seguidos de sus hijos
     const getSortedTasks = (taskList) => {
@@ -73,21 +110,20 @@ const TaskList = ({ tasks, updateTask, deleteTask, addTask }) => {
 
     return (
         <>
-            {/* Aumentado ancho total a 600px usando estilo en línea para forzar el cambio */}
             <div
                 className="border-r border-[var(--border-color)] flex flex-col bg-[var(--bg-color)] shrink-0 sticky left-0 z-40 h-fit min-h-full"
-                style={{ width: '600px', minWidth: '600px' }}
+                style={{ width: `${totalWidth}px`, minWidth: `${totalWidth}px`, transition: 'width 0.15s ease, min-width 0.15s ease' }}
             >
                 {/* Spacer para alinearse con la fila de meses del Timeline */}
                 <div className="h-8 border-b-2 border-primary bg-[var(--grid-color)] sticky top-0 z-50"></div>
 
                 {/* Header de columnas */}
                 <div className="h-12 flex items-center pl-4 border-b border-[var(--border-color)] bg-[var(--grid-color)] font-semibold text-xs text-center sticky top-8 z-50">
-                    <div className="flex-1 text-center">Nombre</div>
-                    {/* Reducido ancho de columnas secundarias */}
+                    <div className="text-center shrink-0" style={{ width: `${responsableWidth}px` }}>Responsable</div>
+                    <div className="text-center shrink-0" style={{ width: `${actividadWidth}px` }}>Actividad</div>
                     <div className="w-32 text-center">Fechas</div>
                     <div className="w-12 text-center">Días</div>
-                    {/* Espaciador para alinear con los botones de acción (aprox 40px) */}
+                    {/* Espaciador para alinear con los botones de acción */}
                     <div className="w-[40px]"></div>
                 </div>
 
@@ -96,15 +132,32 @@ const TaskList = ({ tasks, updateTask, deleteTask, addTask }) => {
                         const depth = getTaskDepth(task);
                         const label = getTaskLabel(depth);
                         const canAdd = canAddChild(task);
-                        const fontSize = getDynamicFontSize(task.name, depth);
 
                         return (
                             <div
                                 key={task.id}
-                                className="group flex items-center min-h-[48px] border-b border-[var(--border-color)] hover:bg-[var(--grid-color)] transition-colors py-1"
-                                style={{ paddingLeft: `${16 + depth * 20}px` }}
+                                className="group flex items-center min-h-[48px] border-b border-[var(--border-color)] hover:bg-[var(--grid-color)] transition-colors py-1 pl-4"
                             >
-                                <div className="flex-1 flex items-center gap-2 overflow-hidden min-w-0 pr-2">
+                                {/* Columna Responsable */}
+                                <div className="flex items-center shrink-0 px-1" style={{ width: `${responsableWidth}px` }}>
+                                    <div className="flex items-center gap-1 w-full">
+                                        <User size={10} className="shrink-0 text-gray-400" />
+                                        <input
+                                            type="text"
+                                            value={task.assignee || ''}
+                                            onChange={(e) => updateTask(task.id, { assignee: e.target.value })}
+                                            placeholder="Asignar"
+                                            className="bg-transparent border-none outline-none focus:ring-1 focus:ring-primary rounded px-1 transition-all w-full min-w-0 text-gray-300 placeholder-gray-600"
+                                            style={{ fontSize: `${FIELD_FONT_SIZE}px` }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Columna Actividad */}
+                                <div
+                                    className="flex items-center gap-2 min-w-0 pr-2 shrink-0"
+                                    style={{ width: `${actividadWidth}px`, paddingLeft: `${depth * 20}px` }}
+                                >
                                     {hasChildren(task.id) && (
                                         <button
                                             onClick={() => toggleCollapse(task.id)}
@@ -125,12 +178,8 @@ const TaskList = ({ tasks, updateTask, deleteTask, addTask }) => {
                                         value={task.name}
                                         onChange={(e) => updateTask(task.id, { name: e.target.value })}
                                         placeholder={`Nombre del ${label}`}
-                                        className={`bg-transparent border-none outline-none focus:ring-1 focus:ring-primary rounded px-1 transition-all w-full min-w-0 ${fontSize}`}
-                                        style={{
-                                            lineHeight: '1.3',
-                                            wordBreak: 'break-word',
-                                            whiteSpace: 'normal'
-                                        }}
+                                        className="bg-transparent border-none outline-none focus:ring-1 focus:ring-primary rounded px-1 transition-all w-full min-w-0"
+                                        style={{ fontSize: `${FIELD_FONT_SIZE}px`, lineHeight: '1.3' }}
                                     />
                                 </div>
 

@@ -11,7 +11,8 @@ export const initialTasks = [
         duration: 5,
         progress: 100,
         color: '#2563eb',
-        parentId: null
+        parentId: null,
+        assignee: 'Ana García'
     },
     {
         id: '2',
@@ -21,7 +22,8 @@ export const initialTasks = [
         duration: 10,
         progress: 45,
         color: '#10b981',
-        parentId: null
+        parentId: null,
+        assignee: 'Carlos López'
     },
     {
         id: '3',
@@ -31,7 +33,8 @@ export const initialTasks = [
         duration: 5,
         progress: 20,
         color: '#f59e0b',
-        parentId: '2'
+        parentId: '2',
+        assignee: 'María Torres'
     },
     {
         id: '4',
@@ -41,6 +44,7 @@ export const initialTasks = [
         duration: 5,
         progress: 0,
         color: '#ef4444',
-        parentId: null
+        parentId: null,
+        assignee: 'Jorge Ramírez'
     }
 ];
